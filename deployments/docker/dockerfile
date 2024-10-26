@@ -1,0 +1,44 @@
+# deployments/docker/Dockerfile
+
+# Build stage
+FROM golang:1.21 AS builder
+
+WORKDIR /app
+
+# Copy go mod and sum files
+COPY go.mod go.sum ./
+
+# Download all dependencies
+RUN go mod download
+
+# Copy the source code
+COPY . .
+
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux go build -o /sre-server ./cmd/server
+
+# Final stage
+FROM ubuntu:22.04
+
+# Install required packages
+RUN apt-get update && apt-get install -y \
+    bpfcc-tools \
+    python3-bpfcc \
+    iproute2 \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the binary from builder
+COPY --from=builder /sre-server .
+
+# Copy eBPF programs
+COPY tools/bpf/ ./tools/bpf/
+
+# Expose ports
+EXPOSE 8080
+EXPOSE 9090
+
+# Run with CAP_SYS_ADMIN for eBPF
+CMD ["./sre-server"]
